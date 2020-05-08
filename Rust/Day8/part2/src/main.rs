@@ -1,5 +1,35 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::io::prelude::*;
+
+// typedef struct {
+//     char  idlength;
+//     char  colourmaptype;
+//     char  datatypecode;              // 2
+//     short int colourmaporigin;
+//     short int colourmaplength;
+//     char  colourmapdepth;
+//     short int x_origin;
+//     short int y_origin;
+//     short width;
+//     short height;
+//     char  bitsperpixel;
+//     char  imagedescriptor;
+//  } HEADER;
+
+fn save_tgc(image : &[[u8; 25]; 6], height : usize, width : usize) -> std::io::Result<()> {
+    let mut file = File::create("message.tga")?;
+
+    let tga_header = [0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, (width & 0x00FF) as u8, ((width & 0xFF00) / 256) as u8, (height & 0x00FF) as u8, ((height & 0xFF00) / 256) as u8, 24, 0];
+    file.write_all(&tga_header)?;
+    for r in (0..height).rev() {
+        for c in 0..width {
+            let color : u8 = if image[r][c] == 0 { 0 } else { 0xff };
+            file.write_all(&[color, color, color])?;
+        }
+    }
+    Ok(())
+}
 
 fn main() {
     // let filename = "src/input0";
@@ -47,4 +77,15 @@ fn main() {
         }
         println!();
     }
+    println!();
+    println!();
+
+    for r in 0..ROW {
+        for c in 0..COL {
+            print!("{}", if final_image[r][c] == 0 { ' ' } else { '0' });
+        }
+        println!();
+    }
+
+    save_tgc(&final_image, ROW as usize, COL as usize);
 }
