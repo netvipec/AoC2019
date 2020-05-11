@@ -127,7 +127,6 @@ fn main() {
         }
     }
 
-    let mut points_goodness : Vec<usize> = Vec::new();
     let mut max_i = points.len() + 1;
     let mut max_count = 0;
     
