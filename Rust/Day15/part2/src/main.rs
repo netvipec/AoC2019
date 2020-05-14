@@ -1,5 +1,7 @@
 use std::fs::File;
+use std::collections::HashSet;
 use std::io::{BufRead, BufReader};
+
 fn print_map(map : &[u8], height : usize, width: usize, origin : &(usize, usize), actual : &(usize, usize, usize)) {
     println!("origin: {:?}, actual: {:?}", origin, actual);
     for r in 0..height {
@@ -28,8 +30,8 @@ struct Intcode {
     map : Vec<u8>,
     robot_move : Vec<(usize, usize, usize)>,
     best_sol : usize,
-    counter : usize,
-    revert_move : bool
+    revert_move : bool,
+    repair_station : (usize, usize)
 }
 
 impl Intcode {
@@ -38,16 +40,42 @@ impl Intcode {
             map : vec![9u8; MAP_ROW * MAP_COL],
             robot_move : vec![(MAP_ROW / 2, MAP_COL / 2, 0)],
             best_sol : usize::max_value(),
-            counter : 0,
-            revert_move : false
+            revert_move : false,
+            repair_station : (0, 0)
         }
+    }
+
+    fn calculate_minutes(&mut self) -> i64 {
+        let mut to_process : HashSet<(usize, usize)> = HashSet::new();
+        to_process.insert(self.repair_station);
+        let mut result : HashSet<(usize, usize)> = HashSet::new();
+        let mut counter : i64 = 0;
+        while to_process.len() > 0 {
+            for p in to_process.iter() {
+                for d in 0..D.len() {
+                    let new_pos = ((p.0 as i64 + D[d].0) as usize, (p.1 as i64 + D[d].1) as usize);
+                    if self.map[new_pos.0 * MAP_COL + new_pos.1] == 0 {
+                        self.map[new_pos.0 * MAP_COL + new_pos.1] = 2;
+                        result.insert(new_pos);
+                    }
+                }
+            }
+
+            // print_map(&self.map, MAP_ROW, MAP_COL, &(MAP_ROW / 2, MAP_COL / 2), &(0, 0, 0));
+            counter += 1;
+            to_process = result;
+            result = HashSet::new();
+        }
+
+        return counter - 1;
     }
 
     fn revert_move(&mut self) -> i64 {
         self.robot_move.remove(self.robot_move.len() - 1);
         if self.robot_move.len() == 0 {
-            println!("Solution: {}", self.best_sol);
+            println!("Repair station: {:?}", self.repair_station);
             print_map(&self.map, MAP_ROW, MAP_COL, &(MAP_ROW / 2, MAP_COL / 2), &(0, 0, 0));
+            println!("Solution: {}", self.calculate_minutes());
             std::process::exit(0);
         }
         let prev_move = self.robot_move.last().unwrap().2;
@@ -101,22 +129,19 @@ impl Intcode {
                 }
             },
             2 => {
-                self.map[new_pos.0 * MAP_COL + new_pos.1] = 2u8;
-                self.robot_move.push((new_pos.0, new_pos.1, 4));
-                if self.robot_move.len() - 1 < self.best_sol {
-                    self.best_sol = self.robot_move.len() - 1;
-                    
+                if self.revert_move {
+                    self.revert_move = false;
+                } else {
+                    self.map[new_pos.0 * MAP_COL + new_pos.1] = 2u8;
+                    self.robot_move.push((new_pos.0, new_pos.1, 0));
+                    if self.robot_move.len() - 1 < self.best_sol {
+                        self.best_sol = self.robot_move.len() - 1;
+                        self.repair_station = new_pos;
+                    }
                 }
-                println!("Found: {}", self.best_sol);
-                print_map(&self.map, MAP_ROW, MAP_COL, &(MAP_ROW / 2, MAP_COL / 2), &(0, 0, 0));
-                println!("Moves: {:?}", self.robot_move);
             },
             _ => unreachable!()
         }
-        // self.counter += 1;
-        // if self.counter % 100 == 0 {
-        //     print_map(&self.map, MAP_ROW, MAP_COL, &(MAP_ROW / 2, MAP_COL / 2), self.robot_move.last().unwrap());
-        // }
     }
 }
 
@@ -280,7 +305,7 @@ fn emulate(commands: &mut Vec<i64>, intcode : &mut Intcode) -> i64 {
 }
 
 fn main() {
-    let filename = "src/input";
+    let filename = "../part1/src/input";
     // Open the file in read-only mode (ignoring errors).
     let file = File::open(filename).unwrap();
     let reader = BufReader::new(file);
