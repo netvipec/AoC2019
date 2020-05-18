@@ -25,7 +25,7 @@ struct Intcode {
     map : Vec<Vec<i8>>,
     map_printed : bool,
     robot_pos : (usize, usize),
-    DLR : HashMap<(usize, usize), char>,
+    dlr : HashMap<(usize, usize), char>,
     main_movement : Vec<char>,
     func_a : Vec<char>,
     func_b : Vec<char>,
@@ -33,7 +33,8 @@ struct Intcode {
     idx1 : usize,
     idx2 : usize,
     feed_map : Vec<Vec<i8>>,
-    feed_map_write : bool
+    feed_map_write : bool,
+    text_cont : bool
 }
 
 impl Intcode {
@@ -42,7 +43,7 @@ impl Intcode {
             map : vec![Vec::new()],
             map_printed : false,
             robot_pos : (0, 0),
-            DLR : HashMap::new(),
+            dlr : HashMap::new(),
             main_movement : Vec::new(),
             func_a : Vec::new(),
             func_b : Vec::new(),
@@ -51,15 +52,16 @@ impl Intcode {
             idx2 : 0,
             feed_map : Vec::new(),
             feed_map_write : false,
+            text_cont : false
         };
-        s.DLR.insert((0, 2), 'L');
-        s.DLR.insert((2, 0), 'R');
-        s.DLR.insert((0, 3), 'R');
-        s.DLR.insert((3, 0), 'L');
-        s.DLR.insert((1, 2), 'R');
-        s.DLR.insert((2, 1), 'L');
-        s.DLR.insert((1, 3), 'L');
-        s.DLR.insert((3, 1), 'R');
+        s.dlr.insert((0, 2), 'L');
+        s.dlr.insert((2, 0), 'R');
+        s.dlr.insert((0, 3), 'R');
+        s.dlr.insert((3, 0), 'L');
+        s.dlr.insert((1, 2), 'R');
+        s.dlr.insert((2, 1), 'L');
+        s.dlr.insert((1, 3), 'L');
+        s.dlr.insert((3, 1), 'R');
         return s;
     }
 
@@ -104,7 +106,7 @@ impl Intcode {
     }
 
     fn calculate_move_sequence(&self) -> String {
-        println!("robot pos: {:?}", self.robot_pos);
+        // println!("robot pos: {:?}", self.robot_pos);
 
         let mut sequence : String = String::new();
 
@@ -114,12 +116,12 @@ impl Intcode {
         loop {
             let (dl, pos) = self.find_direction(&actual_robot_pos, d);
             if dl.0 == 0 && dl.1 == 0 && pos.0 == 0 && pos.1 == 0 {
-                println!("Sequence: {}", sequence);
-                return sequence;
+                // println!("Sequence: {}", sequence);
+                return sequence[..sequence.len() - 1].to_string();
             }
 
             // println!("{:?} = {:?} -> {:?} {}", (d, dl.0), actual_robot_pos, pos, dl.1);
-            let letter = self.DLR.get(&(d, dl.0)).unwrap().to_string();
+            let letter = self.dlr.get(&(d, dl.0)).unwrap().to_string();
             let command = letter + "," + &dl.1.to_string() + ",";
             sequence.push_str(&command);
             // println!("{}", sequence);
@@ -129,6 +131,122 @@ impl Intcode {
         }  
     }
 
+    fn calculate_best_movement_str(&self, seq : &str) -> Vec<(usize, usize)> {
+        const MAX_LEN : usize = 20;
+        let mut found_idx = Vec::new(); 
+        let mut last_pos = 1;
+        loop {
+            let idx = match seq.as_bytes().iter().skip(last_pos).position(|&a| a == seq.as_bytes()[0]) {
+                Some(idx) => idx,
+                None => break,
+            };
+
+            found_idx.push((last_pos + idx, 0));
+            last_pos += idx + 1;
+        }
+
+        let mut best_repeat_size = 0;
+        for j in 0..found_idx.len() {
+            let mut counter = 1;
+            while found_idx[j].0 + counter < seq.as_bytes().len() && counter < found_idx[j].0 && counter < MAX_LEN &&
+                  seq.as_bytes()[found_idx[j].0 + counter] == seq.as_bytes()[counter] {
+                counter += 1;
+            }
+
+            if seq.as_bytes()[counter - 1] == ',' as u8 {
+                counter -= 1;
+            }
+
+            found_idx[j].1 = counter;
+
+            if counter > best_repeat_size {
+                best_repeat_size = counter;
+            }
+        }
+
+        let fi : Vec<(usize, usize)> = found_idx.iter().filter(|&a| a.1 == best_repeat_size).cloned().collect();
+
+        // println!("found idx: {:?}", fi);
+        return fi;
+    }
+
+    fn calculate_sub_str(&self, seq : &str, found_idx : &Vec<(usize, usize)>, f : char) -> (Vec<String>, String) {
+        if found_idx.len() == 0 {
+            return (vec![seq.to_string()], String::new());
+        }
+        let mut res_str : String = f.to_string();
+        let mut res = Vec::new();
+        let mut begin_idx = found_idx[0].1 + 1;
+        loop {
+            loop {
+                let idx = match found_idx.iter().position(|&a| a.0 == begin_idx) {
+                    Some(idx) => idx,
+                    None => break,
+                };
+
+                begin_idx = found_idx[idx].0 + found_idx[idx].1 + 1;
+                res_str.push(',');
+                res_str.push(f);
+            }
+
+            let end_idx = match found_idx.iter().position(|&a| a.0 > begin_idx) {
+                Some(idx) => found_idx[idx].0,
+                None => seq.len(),
+            };
+
+            println!("bi: {}, ei: {}", begin_idx, end_idx);
+            res_str.push(',');
+            res_str.push('X');
+
+            res.push(seq[begin_idx..end_idx].to_string());
+            begin_idx = end_idx;
+            if end_idx == seq.len() {
+                break;
+            }
+        }
+
+        return (res, res_str);
+    }
+
+    fn calculate_best_movement(&mut self, seq : &String) {
+        let mut main_movement = String::new();
+
+        let found_idx1 = self.calculate_best_movement_str(seq);
+        println!("found idx1: {:?}", found_idx1);
+        let sub_str1 = self.calculate_sub_str(&seq, &found_idx1, 'A');
+        println!("sub str1: {:?}", sub_str1);
+
+        main_movement.push_str(&sub_str1.1);
+    
+        let found_idx2 = self.calculate_best_movement_str(&sub_str1.0[0]);
+        println!("found idx2: {:?}", found_idx2);
+        let sub_str2 = self.calculate_sub_str(&sub_str1.0[0], &found_idx2, 'B');        
+        println!("sub str2: {:?}", sub_str2);
+
+        match main_movement.as_bytes().iter().position(|&a| a == 'X' as u8) {
+            Some(idx) => { main_movement.remove(idx); main_movement.insert_str(idx, &sub_str2.1) },
+            None => unreachable!()
+        };
+
+        for si in 1..sub_str2.0.len() {
+            if sub_str2.0[si - 1] != sub_str2.0[si] {
+                unreachable!();
+            }
+        }
+
+        main_movement = main_movement.replace('X', "C");
+
+        self.main_movement = main_movement.chars().collect();
+        self.func_a = seq[0..found_idx1[0].1].chars().collect();
+        self.func_b = sub_str1.0[0][0..found_idx2[0].1].chars().collect();
+        self.func_c = sub_str2.0[0][0..sub_str2.0[0].len() - 1].chars().collect();
+
+        println!("mm: {:?}", self.main_movement);
+        println!("fa: {:?}", self.func_a);
+        println!("fb: {:?}", self.func_b);
+        println!("fc: {:?}", self.func_c);
+    }
+
     fn read_input(&mut self, _count : i64) -> i64 {
         if !self.map_printed {
             println!("Printing map: ");
@@ -136,12 +254,10 @@ impl Intcode {
             print_map(&self.map);
             self.map_printed = true;
 
-            self.calculate_move_sequence();
+            let sequence = self.calculate_move_sequence();
+            println!("Seq: {}", sequence);
 
-            self.main_movement = vec!['A',',','A',',','B',',','C',',','B',',','C',',','B',',','C',',','A',',','C'];
-            self.func_a =        vec!['R',',','6',',','L',',','8',',','R',',','8'];
-            self.func_b =        vec!['R',',','4',',','R',',','6',',','R',',','6',',','R',',','4',',','R',',','4'];
-            self.func_c =        vec!['L',',','8',',','R',',','6',',','L',',','1','0',',','L',',','1','0'];
+            self.calculate_best_movement(&sequence);
         }
 
         return match self.idx1 {
@@ -240,7 +356,15 @@ impl Intcode {
                 let v = [value as u8];
                 let v_str = std::str::from_utf8(&v).unwrap();
                 if v_str.is_ascii() {
-                    println!("Output: {}", v_str);
+                    if self.text_cont {
+                        print!("{}", v_str);
+                        if value == 10 {
+                            self.text_cont = false;
+                        }
+                    } else {
+                        print!("Output: {}", v_str);
+                        self.text_cont = true;
+                    }
                 } else {
                     println!("Output: {}", value);
                 }
@@ -406,30 +530,6 @@ fn emulate(commands: &mut Vec<i64>, intcode : &mut Intcode) -> i64 {
         }
     }
     return 0;
-}
-
-fn get_aligment(map : &mut Vec<Vec<i8>>) -> i64 {
-    let mut sum : i64 = 0;
-    for r in 1..map.len() - 1 {
-        for c in 1..map[r].len() - 1 {
-            if map[r][c] == 35 {
-                let mut counter = 0;
-                for d in D.iter() {
-                    let new_r = ((r as i8) + d.0) as usize;
-                    let new_c = ((c as i8) + d.1) as usize;
-                    // println!("nr: {}, nc: {}, size: {},{}", new_r, new_c, map.len(), map[r].len());
-                    if map[new_r][new_c] == 35 {
-                        counter += 1;
-                    }
-                }
-                if counter == 4 {
-                    map[r][c] = '0' as i8;
-                    sum += (r as i64) * (c as i64);
-                }
-            }
-        }
-    }
-    sum
 }
 
 fn main() {
