@@ -1,11 +1,9 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-const MAX_SIZE : usize = 50;
-
-fn print_map(map : &[[i8; MAX_SIZE]; MAX_SIZE]) {
-    for r in 0..MAX_SIZE {
-        for c in 0..MAX_SIZE {
+fn print_map(map : &Vec<Vec<i8>>) {
+    for r in 0..map.len() {
+        for c in 0..map[r].len() {
             let c = if map[r][c] == 1 { '#' } 
                     else { '.' };
             print!("{}", c);
@@ -14,22 +12,27 @@ fn print_map(map : &[[i8; MAX_SIZE]; MAX_SIZE]) {
     }
 }
 
+#[derive(Clone)]
 struct Intcode {
-    map : [[i8; MAX_SIZE]; MAX_SIZE],
+    map : Vec<Vec<i8>>,
+    o_x : usize,
     x : usize,
     y : usize,
     counter : usize,
-    counter_pulled : usize
+    zero_found : bool,
+    square_size : usize
 }
 
 impl Intcode {
     fn new() -> Intcode {
         Intcode {
-            map : [[0i8; MAX_SIZE]; MAX_SIZE],
+            map : vec![Vec::new()],
+            o_x : 0,
             x : 0,
             y : 0,
             counter : 0,
-            counter_pulled : 0
+            zero_found : false,
+            square_size : 0
         }
     }
 
@@ -48,20 +51,17 @@ impl Intcode {
     }
 
     fn write_output(&mut self, _count: i64, value : i64) {
-        if self.y < MAX_SIZE || self.x < MAX_SIZE {
-            // println!("{}", value);
-            self.map[self.y][self.x] = value as i8;
-            if value == 1 {
-                self.counter_pulled += 1;
-            }
+        // println!("{}", value);
+        self.map.last_mut().unwrap().push(value as i8);
+        if value != 1 {
+            self.zero_found = true;
+        }       
 
-            self.x += 1;
-            if self.x == MAX_SIZE {
-                self.y += 1;
-                self.x = 0;
-            }
-        } else {
-            
+        self.x += 1;
+        if self.x == self.o_x + self.square_size {
+            self.map.push(Vec::new());
+            self.y += 1;
+            self.x = self.o_x;
         }
     }
 }
@@ -225,8 +225,86 @@ fn emulate(commands: &mut Vec<i64>, intcode : &mut Intcode) -> i64 {
     return 0;
 }
 
+fn improve_y(intcode : &mut Intcode, commands : &Vec<i64>) -> bool {
+    let mut improve = false;
+    loop {
+        let mut ic = intcode.clone();
+        for _i in 0..intcode.square_size * intcode.square_size {
+            let mut c = commands.clone();
+            emulate(&mut c, &mut ic);
+
+            if ic.zero_found {
+                break;
+            }
+        }
+
+        if !ic.zero_found {
+            println!("improve y: ({},{}) = {}", intcode.x, intcode.y, intcode.x * 10_000 + intcode.y);
+            improve = true;
+        } else {
+            break;
+        }
+
+        intcode.y -= 1;
+    }
+    improve
+}
+
+fn improve_x(intcode : &mut Intcode, commands : &Vec<i64>) -> bool {
+    let mut improve = false;
+    loop {
+        let mut ic = intcode.clone();
+        for _i in 0..intcode.square_size * intcode.square_size {
+            let mut c = commands.clone();
+            emulate(&mut c, &mut ic);
+
+            if ic.zero_found {
+                break;
+            }
+        }
+
+        if !ic.zero_found {
+            println!("improve x: ({},{}) = {}", intcode.x, intcode.y, intcode.x * 10_000 + intcode.y);
+            improve = true;
+        } else {
+            break;
+        }
+
+        intcode.x -= 1;
+        intcode.o_x -= 1;
+    }
+    improve
+}
+
+fn improve_xy(intcode : &mut Intcode, commands : &Vec<i64>) -> bool {
+    let mut improve = false;
+    loop {
+        let mut ic = intcode.clone();
+        for _i in 0..intcode.square_size * intcode.square_size {
+            let mut c = commands.clone();
+            emulate(&mut c, &mut ic);
+
+            if ic.zero_found {
+                break;
+            }
+        }
+
+        if !ic.zero_found {
+            println!("improve xy: ({},{}) = {}", intcode.x, intcode.y, intcode.x * 10_000 + intcode.y);
+            improve = true;
+        } else {
+            break;
+        }
+
+        intcode.x -= 1;
+        intcode.o_x -= 1;
+        intcode.y -= 1;
+    }
+    improve
+}
+
 fn main() {
-    let filename = "src/input";
+    let filename = "../part1/src/input";
     // Open the file in read-only mode (ignoring errors).
     let file = File::open(filename).unwrap();
     let reader = BufReader::new(file);
@@ -245,14 +323,73 @@ fn main() {
         break;
     }
 
+    // 1 ->  0, 0   8,13
+    // 2 ->  8,13   6,10
+    // 3 -> 14,23   8,13
+    // 4 -> 22,36   6,10
+    // 5 -> 28,46
+    // 6 -> 36,59
+
+    const TARGET : usize = 100;
+
+    // let origin_x = (TARGET / 2 - 1) * 14;
+    // let origin_y = (TARGET / 2 - 1) * 23;
+    let origin_x = 668;
+    let origin_y = 1099;
     commands.resize(1000, 0);
     let mut intcode = Intcode::new();
+    intcode.square_size = TARGET;
+    intcode.x = origin_x;
+    intcode.o_x = origin_x;
+    intcode.y = origin_y;
 
-    for _i in 0..MAX_SIZE * MAX_SIZE {
-        let mut c = commands.clone();
-        emulate(&mut c, &mut intcode);
+    let mut improve = true;
+    while improve {
+        improve = false;
+
+        improve |= improve_y(&mut intcode, &commands);
+        intcode.y += 1;
+
+        improve |= improve_x(&mut intcode, &commands);
+        intcode.x += 1;
+        intcode.o_x += 1;
+
+        improve |= improve_xy(&mut intcode, &commands);
+        intcode.y += 1;
+        intcode.x += 1;
+        intcode.o_x += 1;
+
+        let mut out = false;
+        for x in intcode.x - 10..intcode.x {
+            for y in intcode.y - 10..intcode.y {
+                let mut ic = intcode.clone();
+                ic.x = x;
+                ic.o_x = x;
+                ic.y = y;
+                for _i in 0..intcode.square_size * intcode.square_size {
+                    let mut c = commands.clone();
+                    emulate(&mut c, &mut ic);
+
+                    if ic.zero_found {
+                        break;
+                    }
+                }
+
+                if !ic.zero_found {
+                    intcode.x = x;
+                    intcode.o_x = x;
+                    intcode.y = y;
+                    out = true;
+                    improve = true;
+                }
+            }
+            if out {
+                break;
+            }
+        }
     }
 
-    println!("Solution part1: {}", intcode.counter_pulled);
-    print_map(&intcode.map);
+    println!("Final Solution part2: ({},{}) = {}", intcode.x, intcode.y, intcode.x * 10_000 + intcode.y);    
+    // println!("Origin: ({},{})", origin_x, origin_y);
+    // print_map(&intcode.map);
 }
