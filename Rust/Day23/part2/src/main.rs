@@ -9,7 +9,8 @@ struct Intcode {
     addr_send : bool,
     to_addr : (i64, i64, i64),
     message_counter : i32,
-    read : bool
+    read : bool,
+    bad_read_count : i64
 }
 
 impl Intcode {
@@ -20,7 +21,8 @@ impl Intcode {
             addr_send : false,
             to_addr : (-1, -1, -1),
             message_counter : 0,
-            read : false
+            read : false,
+            bad_read_count : 0
         }
     }
 
@@ -32,9 +34,11 @@ impl Intcode {
 
         self.read = true;
         if self.messages.len() == 0 {
+            self.bad_read_count += 1;
             return -1;
         } else {
             let v = self.messages.pop_front().unwrap();
+            self.bad_read_count = 0;
             return v;
         }
     }
@@ -50,6 +54,7 @@ impl Intcode {
             _ => {}
         };
         self.message_counter += 1;
+        self.bad_read_count = 0;
     }
 }
 
@@ -231,7 +236,7 @@ impl IntcodeEmulator {
 }
 
 fn main() {
-    let filename = "src/input";
+    let filename = "../part1/src/input";
     // Open the file in read-only mode (ignoring errors).
     let file = File::open(filename).unwrap();
     let reader = BufReader::new(file);
@@ -257,26 +262,56 @@ fn main() {
         network.push(IntcodeEmulator::new(commands.clone(), Intcode::new(i)));
     }
 
+    let mut nat_message : (i64, i64, i64) = (-1,-1,-1);
+    let mut y_sended : (i64, i64, i64) = (-1,-1,-1);
+
     loop {
-        for pc in 0..network.len() {
+        let mut messages_list_size : Vec<(usize, usize)> = (0..).zip(network.iter().map(|c| c.intcode.messages.len())).collect();
+        messages_list_size.sort_by(|a, b| b.1.cmp(&a.1));
+        // println!("message list size: {:?}", messages_list_size);
+
+        for pci in 0..messages_list_size.len() {
+            let pc = messages_list_size[pci].0;
             loop {
                 network[pc].emulate();
                 if network[pc].intcode.message_counter == 3 {
                     network[pc].intcode.message_counter = 0;
                     let m = network[pc].intcode.to_addr;
                     if m.0 == 255 {
-                        println!("Solution: {:?}", m);
-                        return;
+                        if nat_message == m {
+                            // println!("send message to nat: {:?}, REPEATED from {}", nat_message, pc);
+                        } else {
+                            println!("send message to nat: {:?}, UPDATED from {}", m, pc);
+                            nat_message = m.clone();
+                        }
+                    } else {
+                        network[m.0 as usize].intcode.messages.push_back(m.1);
+                        network[m.0 as usize].intcode.messages.push_back(m.2);
+                        // println!("send message to addr: {:?}, from {}", m, pc);
                     }
-                    network[m.0 as usize].intcode.messages.push_back(m.1);
-                    network[m.0 as usize].intcode.messages.push_back(m.2);
+
                     break;
                 }
                 if network[pc].intcode.read {
                     network[pc].intcode.read = false;
-                    break;
+                    if network[pc].intcode.bad_read_count > 0 {
+                        break;
+                    }
                 }
             }
+        }
+
+        let pc_in_read = network.iter().filter(|&c| c.intcode.messages.len() == 0 && c.intcode.bad_read_count > 5).count();
+        if pc_in_read == network.len() {
+            if y_sended.2 == nat_message.2 {
+                println!("Solution: {:?}", nat_message);
+                return;
+            }
+            network[0].intcode.messages.push_back(nat_message.1);
+            network[0].intcode.messages.push_back(nat_message.2);
+            y_sended = nat_message;
+
+            println!("Send to addr0 message: {:?}", nat_message);
         }
     }
 }
