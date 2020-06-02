@@ -1,49 +1,49 @@
+extern crate itertools;
+
+use itertools::Itertools;
 use std::io::{self,Write};
 use std::fs::File;
-use std::collections::{HashSet,HashMap};
 use std::io::{BufRead, BufReader};
-use std::process;
 
 const MAX_SIZE_CMD : usize = 100;
-
-const D : [(i32, i32);4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
 
 #[derive(Clone)]
 struct Intcode {
     last_cmd : String,
     last_cmd_idx : usize,
 
-    writed_output : String,
-    path : Vec<(String, String, (i32,i32))>,
-    visit_points : HashSet<(i32, i32)>,
-    pos : (i32, i32),
-    str_to_d : HashMap<String, usize>,
-    rooms : HashMap<(i32, i32), String>,
-    last_tested : String
+    commands_to_check : Vec<String>,
+    commands_to_check_idx : usize,
+    objects : Vec<String>,
+    objects_dropped : bool,
+    objects_put : bool
 }
 
 impl Intcode {
     fn new() -> Intcode {
-        let mut ic = Intcode {
+        Intcode {
             last_cmd : String::new(),
             last_cmd_idx : MAX_SIZE_CMD,
-            writed_output : String::new(),
-            path : Vec::new(),
-            visit_points : HashSet::new(),
-            pos : (0i32, 0i32),
-            str_to_d : HashMap::new(),
-            rooms : HashMap::new(),
-            last_tested : String::new()
-        };
-
-        ic.str_to_d.insert("north".to_string(), 0);
-        ic.str_to_d.insert("south".to_string(), 1);
-        ic.str_to_d.insert("west".to_string(), 2);
-        ic.str_to_d.insert("east".to_string(), 3);
-
-        ic.path.push(("".to_string(), "".to_string(), (0,0)));
-
-        return ic;
+            commands_to_check : vec!["east".to_string(), "take manifold".to_string(), "south".to_string(), "take whirled peas".to_string(), 
+                                     "north".to_string(), "west".to_string(), "south".to_string(), "take space heater".to_string(), "east".to_string(),
+                                     "east".to_string(), "take bowl of rice".to_string(), "north".to_string(), "take klein bottle".to_string(), 
+                                     "north".to_string(), "take spool of cat6".to_string(), "south".to_string(), "south".to_string(), "west".to_string(),
+                                     "west".to_string(), "south".to_string(), "take dark matter".to_string(), "north".to_string(), "east".to_string(),
+                                     "north".to_string(), "west".to_string(), "south".to_string(), "take antenna".to_string(), "north".to_string(),
+                                     "east".to_string(), "south".to_string(), "east".to_string(), "north".to_string(), "north".to_string(), "west".to_string()],
+            
+            commands_to_check_idx : 0,
+            objects : vec!["manifold".to_string(),
+                           "whirled peas".to_string(),
+                           "space heater".to_string(),
+                           "bowl of rice".to_string(),
+                           "klein bottle".to_string(),
+                           "spool of cat6".to_string(),
+                           "dark matter".to_string(),
+                           "antenna".to_string()],
+            objects_dropped : false,
+            objects_put : false
+        }
     }
 
     fn read_input(&mut self, _count : i64) -> i64 {
@@ -57,115 +57,56 @@ impl Intcode {
                 self.last_cmd_idx = MAX_SIZE_CMD;
                 println!();
                 return 10;
-            }
-            
+            }            
         } else {
-            // manual input
-            print!("{} - Input: ", _count);
-            io::stdout().flush().ok().expect("Could not flush stdout");
+            if self.commands_to_check_idx < self.commands_to_check.len() {
+                self.last_cmd = self.commands_to_check[self.commands_to_check_idx].clone();
+                self.last_cmd_idx = 1;
+                self.commands_to_check_idx += 1;
+            } else {
+                if !self.objects_dropped {
+                    self.objects_dropped = true;
+                    let d = String::from("drop ");
+                    for o in self.objects.iter() {
+                        self.commands_to_check.push(d.clone() + o);
+                    }
 
-            let mut input_text = String::new();
-            io::stdin()
-                .read_line(&mut input_text)
-                .expect("failed to read from stdin");
+                    self.last_cmd = self.commands_to_check[self.commands_to_check_idx].clone();
+                    self.last_cmd_idx = 1;
+                } else {
+                    if !self.objects_put {
+                        self.objects_put = true;
 
-            // let mut valid_d = Vec::new();
-            // let mut read_doors = false;
-            // for line in self.writed_output.lines() {
-            //     if line == "Doors here lead:" {
-            //         read_doors = true;
-            //     } else if read_doors {
-            //         if line == "- north" {
-            //             valid_d.push(("north".to_string(), "south".to_string()));
-            //         } else if line == "- east" {
-            //             valid_d.push(("east".to_string(), "west".to_string()));
-            //         } else if line == "- south" {
-            //             valid_d.push(("south".to_string(), "north".to_string()));
-            //         } else if line == "- west" {
-            //             valid_d.push(("west".to_string(), "east".to_string()));
-            //         } else {
-            //             read_doors = false;
-            //         }
-            //     }
-            // }
+                        let t = String::from("take ");
+                        let d = String::from("drop ");
+                        let comb : Vec<_> = self.objects.iter().combinations(4).collect();
+                        for c in comb.iter() {
+                            for o in c.iter() {
+                                self.commands_to_check.push(t.clone() + o);
+                            }
+                            self.commands_to_check.push("north".to_string());
+                            for o in c.iter() {
+                                self.commands_to_check.push(d.clone() + o);
+                            }
+                        }
 
-            // if !self.visit_points.contains(&self.pos) {
-            //     self.visit_points.insert(self.pos);
-            //     self.rooms.insert(self.pos, self.writed_output.clone());
-            // }
+                        self.last_cmd = self.commands_to_check[self.commands_to_check_idx].clone();
+                        self.last_cmd_idx = 1;
+                    } else {
+                        // manual input
+                        print!("{} - Input: ", _count);
+                        io::stdout().flush().ok().expect("Could not flush stdout");
 
-            // let mut move_direction = String::new();
-            // let mut new_pos = (0i32, 0i32);
-            // let last_d = match self.path.last() {
-            //     Some(d) => d.1.clone(),
-            //     None => "".to_string()
-            // };
-            // let rev_pos = match valid_d.iter().position(|a| str::eq(&a.0, &self.last_tested)) {
-            //     Some(p) => p,
-            //     None => 5
-            // };
-            // let for_pos = match valid_d.iter().position(|a| str::eq(&a.0, &last_d)) {
-            //     Some(p) => p,
-            //     None => 5
-            // };
-            // for vdi in 0..valid_d.len() {
-            //     if vdi == rev_pos || vdi == for_pos {
-            //         continue;
-            //     }
-            //     let vd = &valid_d[vdi];
-            //     let di = *self.str_to_d.get(&vd.0).unwrap();
+                        let mut input_text = String::new();
+                        io::stdin()
+                            .read_line(&mut input_text)
+                            .expect("failed to read from stdin");
 
-            //     new_pos.0 = self.pos.0 + D[di].0;
-            //     new_pos.1 = self.pos.1 + D[di].1;
-
-            //     if !self.visit_points.contains(&new_pos) {
-            //         move_direction = vd.0.clone();
-            //         self.path.push((vd.0.clone(), vd.1.clone(), self.pos));
-            //         self.last_tested.clear();
-            //         self.pos = new_pos;
-            //         break;
-            //     }
-            // }
-
-            // if move_direction == "" {
-            //     let last_idx = self.path.len() - 1;
-            //     move_direction = (*self.path.get(last_idx).unwrap()).1.clone();
-            //     self.last_tested = (*self.path.get(last_idx).unwrap()).0.clone();
-            //     self.pos = (*self.path.get(last_idx).unwrap()).2;
-            //     self.path.pop();
-            //     if self.path.len() == 0 {
-            //         println!("rooms: =============================================");
-            //         for r in self.rooms.iter() {
-            //             println!("{:?} {}", r.0, r.1);
-            //         }
-                    
-            //         process::exit(0);
-            //     }
-            // }
-
-            // self.last_cmd = move_direction.clone();
-            // println!("Input to use: {}", move_direction);
-            self.last_cmd = input_text.trim().to_string();
-
-            if self.last_cmd == "north" {
-                self.pos.0 += D[0].0;
-                self.pos.1 += D[0].1;
-            } else if self.last_cmd == "south" {
-                self.pos.0 += D[1].0;
-                self.pos.1 += D[1].1;
-            } else if self.last_cmd == "west" {
-                self.pos.0 += D[2].0;
-                self.pos.1 += D[2].1;
-            } else if self.last_cmd == "east" {
-                self.pos.0 += D[3].0;
-                self.pos.1 += D[3].1;
+                        self.last_cmd = input_text.trim().to_string();
+                        self.last_cmd_idx = 1;
+                    }
+                }
             }
-
-            println!("pos: {:?}", self.pos);
-
-            self.last_cmd_idx = 1;
-            // self.writed_output.clear();
-
             let c = *self.last_cmd.as_bytes().get(0).unwrap();
             print!("Input send: {}", c as char);
             return c as i64;
@@ -175,7 +116,6 @@ impl Intcode {
     fn write_output(&mut self, _count: i64, value : i64) {
         if 0 <= value && value < 256 {
             let c = (value as u8) as char;
-            self.writed_output.push(c);
             print!("{}", c);
         } else {
             println!("{}", value);
